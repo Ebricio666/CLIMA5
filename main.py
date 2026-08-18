@@ -175,42 +175,46 @@ if seccion == "Inicio":
 elif seccion == "Mapas Climatológicos":
 
 
-    # URL base del repositorio en GitHub
-    github_base_url = "https://api.github.com/repos/SArcD/MapasClimaticosIA/contents/"
+    # Carga manual de CSV para la demostración / uso portátil
+    st.subheader("📂 Cargar datos de estaciones meteorológicas")
+    st.caption("Carga aquí los archivos CSV de las estaciones que quieras usar. Los mismos archivos alimentan los mapas climatológicos; en el módulo Prophet puedes volver a cargarlos para el pronóstico temporal.")
 
-    @st.cache_data
-    # Función para obtener la lista de archivos en una carpeta desde GitHub
-    def list_files_from_github(folder_path):
-        url = github_base_url + folder_path
-        try:
-            response = requests.get(url)
-            response.raise_for_status()
-            files = response.json()
-            return [file['path'] for file in files if file['type'] == 'file']
-        except Exception as e:
-            st.error(f"Error al listar archivos en {folder_path}: {e}")
-            return []
+    archivos_mapa = st.file_uploader(
+        "Selecciona uno o varios CSV de estaciones",
+        type=["csv"],
+        accept_multiple_files=True,
+        key="csv_mapas_upload"
+    )
 
-    @st.cache_data
-    # Función para leer un archivo CSV desde GitHub
-    def read_csv_from_github(file_path):
-        # Convertir la URL a RAW para obtener el contenido del archivo
-        raw_url = file_path.replace("https://github.com", "https://raw.githubusercontent.com").replace("/blob/", "/")
-        try:
-            response = requests.get(raw_url)
-            response.raise_for_status()
-            # Usar io.StringIO para leer el contenido como un CSV
-            return pd.read_csv(io.StringIO(response.text))
-        except Exception as e:
-            st.error(f"Error al leer {file_path}: {e}")
-            return None
+    if not archivos_mapa:
+        st.info("Carga al menos un archivo CSV para comenzar. Para interpolar se recomiendan varias estaciones con Latitud y Longitud.")
+        st.stop()
 
-    # Listar archivos en las carpetas
-    colima_files = list_files_from_github("datos_estaciones_colima")
-    cerca_files = list_files_from_github("datos_estaciones_cerca_colima")
+    # Guardar temporalmente los archivos durante la sesión. No se requiere subirlos a GitHub.
+    import tempfile
+    output_dir_manual = os.path.join(tempfile.gettempdir(), "climapredictor_csv_manual")
+    os.makedirs(output_dir_manual, exist_ok=True)
 
-    output_dir_colima = "datos_estaciones_colima"
-    output_dir_cerca = "datos_estaciones_cerca_colima"
+    # Limpiar CSV de sesiones/selecciones anteriores para evitar mezclar estaciones.
+    for nombre_previo in os.listdir(output_dir_manual):
+        if nombre_previo.lower().endswith(".csv"):
+            try:
+                os.remove(os.path.join(output_dir_manual, nombre_previo))
+            except OSError:
+                pass
+
+    claves_cargadas = []
+    for archivo_subido in archivos_mapa:
+        nombre = os.path.basename(archivo_subido.name)
+        ruta = os.path.join(output_dir_manual, nombre)
+        with open(ruta, "wb") as f:
+            f.write(archivo_subido.getbuffer())
+        clave = nombre[:-7] if nombre.lower().endswith("_df.csv") else os.path.splitext(nombre)[0]
+        claves_cargadas.append(clave)
+
+    output_dir_colima = output_dir_manual
+    output_dir_cerca = output_dir_manual
+    st.success(f"{len(archivos_mapa)} archivo(s) cargado(s).")
 
 
     @st.cache_data
@@ -384,7 +388,8 @@ elif seccion == "Mapas Climatológicos":
     st.session_state.claves_colima = claves_colima
 
     # Combinar todas las claves
-    claves = claves_colima + claves_colima_cerca
+    # Para esta versión portátil, solo se procesan las estaciones cargadas manualmente.
+    claves = list(dict.fromkeys(claves_cargadas))
 
     # Columnas numéricas disponibles
     columnas_numericas = [
@@ -535,7 +540,7 @@ elif seccion == "Mapas Climatológicos":
     """, unsafe_allow_html=True)
 
     # Directorios de entrada    
-    st.session_state.output_dirs = [output_dir_colima, output_dir_cerca] 
+    st.session_state.output_dirs = [output_dir_manual] 
     #output_dirs = [output_dir_colima, output_dir_cerca]
     output_dirs = st.session_state.output_dirs
     # Obtener años disponibles
